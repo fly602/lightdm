@@ -17,6 +17,7 @@ Restart=on-failure
 RestartSec=5s
 IgnoreSIGPIPE=no
 BusName=org.freedesktop.DisplayManager
+OOMScoreAdjust=-999
 
 [Install]
 Alias=display-manager.service
