@@ -1,0 +1,79 @@
+Index: lightdm/src/process.c
+===================================================================
+--- lightdm.orig/src/process.c
++++ lightdm/src/process.c
+@@ -133,7 +133,10 @@ process_set_env (Process *process, const
+     ProcessPrivate *priv = process_get_instance_private (process);
+     g_return_if_fail (process != NULL);
+     g_return_if_fail (name != NULL);
+-    g_hash_table_insert (priv->env, g_strdup (name), g_strdup (value));
++    if (value != NULL)
++        g_hash_table_insert (priv->env, g_strdup (name), g_strdup (value));
++    else
++        g_hash_table_remove (priv->env, name);
+ }
+ 
+ const gchar *
+@@ -244,10 +247,10 @@ process_start (Process *process, gboolea
+             environ = NULL;
+ #endif
+         for (guint i = 0; i < env_length; i++)
+-            setenv (env_keys[i], env_values[i], TRUE);
+-
+-        /* Reset SIGPIPE handler so the child has default behaviour (we disabled it at LightDM start) */
+-        signal (SIGPIPE, SIG_DFL);
++        {
++            if (env_values[i] != NULL)
++                setenv (env_keys[i], env_values[i], TRUE);
++        }
+ 
+         /* Reset SIGPIPE handler so the child has default behaviour (we disabled it at LightDM start) */
+         signal (SIGPIPE, SIG_DFL);
+Index: lightdm/src/seat-local.c
+===================================================================
+--- lightdm.orig/src/seat-local.c
++++ lightdm/src/seat-local.c
+@@ -288,7 +288,8 @@ seat_local_run_script (Seat *seat, Displ
+     {
+         const gchar *path = x_server_local_get_authority_file_path (X_SERVER_LOCAL (display_server));
+         process_set_env (script, "DISPLAY", x_server_get_address (X_SERVER (display_server)));
+-        process_set_env (script, "XAUTHORITY", path);
++        if (path)
++            process_set_env (script, "XAUTHORITY", path);
+     }
+ 
+     SEAT_CLASS (seat_local_parent_class)->run_script (seat, display_server, script);
+Index: lightdm/src/seat.c
+===================================================================
+--- lightdm.orig/src/seat.c
++++ lightdm/src/seat.c
+@@ -795,6 +795,15 @@ session_stopped_cb (Session *session, Se
+ 
+     DisplayServer *display_server = session_get_display_server (session);
+ 
++    /* If the seat is stopping, skip cleanup scripts - the display server
++     * may already be stopped and its resources freed (e.g. authority_file). */
++    if (priv->stopping)
++    {
++        check_stopped (seat);
++        g_object_unref (session);
++        return;
++    }
++
+     /* Cleanup */
+     if (!IS_GREETER_SESSION (session))
+     {
+@@ -808,13 +817,6 @@ session_stopped_cb (Session *session, Se
+     if (session == priv->session_to_activate)
+         g_clear_object (&priv->session_to_activate);
+ 
+-    if (priv->stopping)
+-    {
+-        check_stopped (seat);
+-        g_object_unref (session);
+-        return;
+-    }
+-
+     if (priv->wayland_mode_session_to_activate) {
+         l_debug(seat, "wayland mode, stop display server");
+         display_server_stop(display_server);
